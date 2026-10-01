@@ -1,0 +1,64 @@
+# Base44 development environment for Mk48.io.
+#
+# Runs the game entirely from the cloned source (bind-mounted at /app):
+#   - client:  debug WASM build via `trunk watch`, output to client/dist
+#   - server:  native debug build via `cargo run`, serving the client from
+#              client/dist over plain HTTP on port 3000 (debug builds of the
+#              kodiak server serve HTTP directly, without the HTTPS redirect).
+name: mk48
+
+x-toolchain: &toolchain
+  build:
+    context: .
+    dockerfile: .base44/Dockerfile
+  volumes:
+    - ./:/app
+    # Shared dependency caches so the initial build only ever downloads once.
+    - cargo-registry:/usr/local/cargo/registry
+    - cargo-git:/usr/local/cargo/git
+
+services:
+  client:
+    <<: *toolchain
+    working_dir: /app/client
+    command: ["sh", "/app/.base44/client_watch.sh"]
+    restart: on-failure
+    healthcheck:
+      # Healthy once the first debug WASM build has produced its output.
+      test: ["CMD-SHELL", "test -f /app/client/dist/index.html && ls /app/client/dist/*.wasm >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      # First build downloads all crates and compiles the client; allow time.
+      start_period: 40m
+      retries: 3
+
+  server:
+    <<: *toolchain
+    working_dir: /app/server
+    command:
+      - sh
+      - -ec
+      - |
+        cargo build
+        until [ -f /app/client/dist/index.html ]; do sleep 5; done
+        exec cargo run -- \
+          --http-port 3000 \
+          --https-port 8443 \
+          --ipv4-address 127.0.0.1 \
+          --domain-backup /tmp/domain_backup.json \
+          --client-authenticate-burst 999999 \
+          --http-bandwidth-limit 99999999
+    ports:
+      - "3000:3000"
+    restart: on-failure
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/ -o /dev/null"]
+      interval: 30s
+      timeout: 5s
+      # Covers the initial debug compile of the server.
+      start_period: 40m
+      retries: 5
+
+volumes:
+  cargo-registry:
+  cargo-git:

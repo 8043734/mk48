@@ -1,6 +1,7 @@
 *.idea/
 *.iml
 target
+client/dist/
 terrain.png
 *.data
 *.data.old

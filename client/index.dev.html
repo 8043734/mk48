@@ -31,6 +31,40 @@
             }
         }
     </script>
+    <!--
+        Dev-only shim: when this page is served through a reverse proxy whose hostname
+        carries no explicit port (e.g. a preview environment), the game client derives
+        its websocket URL from the system.json response and appends a private port
+        (8000 + server id) that is not reachable from the browser. Rewrite such
+        connections to the page's own origin, which proxies to the game server.
+        Inert for localhost/<host>:<port> dev setups and production deployments.
+    -->
+    <script>
+        (function () {
+            var OriginalWebSocket = window.WebSocket;
+            if (!OriginalWebSocket) return;
+            function ShimWebSocket(url, protocols) {
+                try {
+                    var parsed = new URL(url, window.location.href);
+                    if (parsed.hostname === window.location.hostname
+                        && parsed.port !== ''
+                        && window.location.port === '') {
+                        url = parsed.origin + parsed.pathname + parsed.search;
+                    }
+                } catch (e) { /* fall through with the original URL */ }
+                if (protocols === undefined) {
+                    return new OriginalWebSocket(url);
+                }
+                return new OriginalWebSocket(url, protocols);
+            }
+            ShimWebSocket.prototype = OriginalWebSocket.prototype;
+            ShimWebSocket.CONNECTING = OriginalWebSocket.CONNECTING;
+            ShimWebSocket.OPEN = OriginalWebSocket.OPEN;
+            ShimWebSocket.CLOSING = OriginalWebSocket.CLOSING;
+            ShimWebSocket.CLOSED = OriginalWebSocket.CLOSED;
+            window.WebSocket = ShimWebSocket;
+        })();
+    </script>
     <link data-trunk rel="rust" data-wasm-opt="0" data-keep-debug/>
     <link data-trunk rel="copy-dir" href="data/">
     
