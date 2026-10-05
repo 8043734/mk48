@@ -1,0 +1,15 @@
+# Base44 dev image: Rust toolchain only — no application code is baked in.
+# Source is bind-mounted at /app by docker-compose.base44.yml.
+FROM rust:slim-bookworm
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git gcc libc6-dev pkg-config curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Nightly pinned by makefiles/game.mk (`make rustup`).
+RUN rustup toolchain install nightly-2024-04-20 --profile minimal \
+        --target wasm32-unknown-unknown
+ENV RUSTUP_TOOLCHAIN=nightly-2024-04-20
+
+# Trunk version pinned by the repo (`make trunk`).
+RUN cargo install --locked trunk --version 0.21.7

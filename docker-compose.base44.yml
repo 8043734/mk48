@@ -1,0 +1,67 @@
+# Base44 development environment for mk48.io.
+#
+# Single origin: the Rust game server (debug build) serves both the HTTP
+# client (compiled by trunk into client/dist) and the game websocket.
+# No external credentials are required.
+services:
+  game:
+    build:
+      context: .
+      dockerfile: Dockerfile.base44
+    image: mk48-dev:base44
+    working_dir: /app
+    environment:
+      - CARGO_TERM_COLOR=always
+    volumes:
+      # Live source (bind mount) — never baked into the image.
+      - .:/app
+      # Persistent caches so restarts/recompiles are fast.
+      - cargo-cache:/usr/local/cargo
+      - client-target:/app/client/target
+      - server-target:/app/server/target
+    # Replicates `make run_debug` from makefiles/game.mk: build the wasm
+    # client with trunk, then run the debug server, which serves client/dist
+    # from disk over plain HTTP.
+    command:
+      - sh
+      - -ec
+      - |
+        cd /app/client
+        trunk build --minify --no-sri --skip-version-check --filehash false index.dev.html
+        mv dist/index.dev.html dist/index.html
+        cd /app/server
+        exec cargo run -- --http-port 8000 --https-port 8443 \
+          --client-authenticate-burst 999999 --http-bandwidth-limit 99999999
+    healthcheck:
+      # Server is up once it serves the client index page.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/ | head -c 20 | grep -q '<' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # First boot compiles the client and server (can take many minutes).
+      start_period: 45m
+    restart: on-failure
+
+  # Rewrites the websocket Origin header to a value the kodiak server accepts
+  # (the preview's public origin is not on its allowlist).
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx.base44.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      game:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    restart: on-failure
+
+volumes:
+  cargo-cache:
+  client-target:
+  server-target:

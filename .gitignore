@@ -6,4 +6,7 @@ terrain.png
 *.data.old
 *.swp
 serde-test/*
+# Base44 dev build artifacts
+client/dist/
+server/domain_backup.json
 .ssh/*
